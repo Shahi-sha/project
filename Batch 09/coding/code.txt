@@ -1,0 +1,85 @@
+#include <ESP8266WiFi.h>
+#include <DHT.h>
+#include <WiFiClientSecure.h>
+
+#define DHTPIN 4          // Pin where the DHT sensor is connected
+#define DHTTYPE DHT11     // Change to DHT22 if you're using that
+#define LDRPIN A0         // Pin where the LDR is connected
+
+const char* ssid = "replace and enter your wifi name";                // Replace with your WiFi SSID
+const char* password = "replace this and enter your wifi pass ";       //kindly enter your pass check ssid and pass  is correct is it corrtct?
+//yes correct
+const char* serverUrl = "iot.pythonanywhere.com"; // Your API endpoint without "https://"
+
+// Create a DHT object
+DHT dht(DHTPIN, DHTTYPE);
+
+void setup() {
+    Serial.begin(115200);
+    dht.begin();
+    
+    // Connect to WiFi
+    WiFi.begin(ssid, password);
+    while (WiFi.status() != WL_CONNECTED) {
+        delay(500);
+        Serial.print(".");
+    }
+    Serial.println("Connected to WiFi");
+}
+
+void loop() {
+    // Read temperature and humidity
+    float temperature = dht.readTemperature();
+    float humidity = dht.readHumidity();
+    
+    // Read LDR value
+    int ldrValue = analogRead(LDRPIN);
+
+    // Check if any reads failed
+    if (isnan(temperature) || isnan(humidity)) {
+        Serial.println("Failed to read from DHT sensor!");
+        delay(10000); // Wait before retrying
+        return;
+    }
+
+    // Create JSON payload
+    String jsonPayload = String("{\"temperature\":") + temperature +
+                         ",\"humidity\":" + humidity +
+                         ",\"hb\":" + ldrValue + "}";
+
+    // Send HTTPS POST request
+    if (WiFi.status() == WL_CONNECTED) {
+        WiFiClientSecure client; // Create WiFiClientSecure object
+        client.setInsecure();    // Use this for testing; for production, use a proper certificate
+
+        // Begin connection
+        if (client.connect(serverUrl, 443)) { // Port 443 for HTTPS
+            // Create HTTP POST request
+            client.println("POST /data HTTP/1.1");
+            client.println("Host: " + String(serverUrl));
+            client.println("Content-Type: application/json");
+            client.print("Content-Length: ");
+            client.println(jsonPayload.length());
+            client.println("Connection: close");
+            client.println(); // End of headers
+            client.println(jsonPayload); // Send the JSON payload
+
+            // Wait for response
+            while (client.connected() || client.available()) {
+                if (client.available()) {
+                    String line = client.readStringUntil('\n');
+                    Serial.println(line); // Print response from server
+                }
+            }
+        } else {
+            Serial.println("Connection failed");
+        }
+
+        // Close the connection
+        client.stop();
+    } else {
+        Serial.println("WiFi Disconnected");
+    }
+
+    delay(10000); // Send data every 10 seconds
+}
